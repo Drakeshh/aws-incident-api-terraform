@@ -12,3 +12,8 @@ output "lambda_function_name" {
   description = "Lambda function name"
   value       = aws_lambda_function.incident_handler.function_name
 }
+
+output "custom_domain_endpoint" {
+  description = "Custom domain API endpoint"
+  value       = "https://api.project2.sergipratmerin.com/incidents"
+}

@@ -241,3 +241,76 @@ resource "aws_api_gateway_stage" "prod" {
     Project     = var.project_name
   }
 }
+
+# ACM certificate for custom domain
+resource "aws_acm_certificate" "api" {
+  domain_name       = "api.project2.sergipratmerin.com"
+  validation_method = "DNS"
+
+  tags = {
+    Environment = var.environment
+    Project     = var.project_name
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# DNS validation record in Route 53
+resource "aws_route53_record" "api_cert_validation" {
+  for_each = {
+    for dvo in aws_acm_certificate.api.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
+
+  zone_id = "Z0947520WDN1EWGENS8T"
+  name    = each.value.name
+  type    = each.value.type
+  records = [each.value.record]
+  ttl     = 60
+}
+
+# Wait for certificate validation
+resource "aws_acm_certificate_validation" "api" {
+  certificate_arn         = aws_acm_certificate.api.arn
+  validation_record_fqdns = [for record in aws_route53_record.api_cert_validation : record.fqdn]
+}
+
+# API Gateway custom domain
+resource "aws_api_gateway_domain_name" "api" {
+  domain_name              = "api.project2.sergipratmerin.com"
+  regional_certificate_arn = aws_acm_certificate_validation.api.certificate_arn
+
+  endpoint_configuration {
+    types = ["REGIONAL"]
+  }
+
+  tags = {
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+# Map custom domain to API stage
+resource "aws_api_gateway_base_path_mapping" "api" {
+  api_id      = aws_api_gateway_rest_api.incident_api.id
+  stage_name  = aws_api_gateway_stage.prod.stage_name
+  domain_name = aws_api_gateway_domain_name.api.domain_name
+}
+
+# Route 53 record pointing subdomain to API Gateway
+resource "aws_route53_record" "api" {
+  zone_id = "Z0947520WDN1EWGENS8T"
+  name    = "api.project2.sergipratmerin.com"
+  type    = "A"
+
+  alias {
+    name                   = aws_api_gateway_domain_name.api.regional_domain_name
+    zone_id                = aws_api_gateway_domain_name.api.regional_zone_id
+    evaluate_target_health = false
+  }
+}
